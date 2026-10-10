@@ -27,7 +27,8 @@
     <script type="text/babel">
         const { useState, useEffect, useCallback } = React;
         
-        let supabase = null;
+        // Kita tidak mendeklarasikan `let supabase = null;` di luar lagi
+        // Kita akan menyimpannya di state App agar sinkron dengan siklus hidup React.
 
         // Custom UI Components untuk menghindari alert()
         const Toast = ({ message, type, onClose }) => (
@@ -89,7 +90,7 @@
             );
         };
 
-        const Auth = ({ onLogin, showToast }) => {
+        const Auth = ({ supabase, onLogin, showToast }) => {
             const [isLogin, setIsLogin] = useState(true);
             const [email, setEmail] = useState('');
             const [password, setPassword] = useState('');
@@ -165,7 +166,7 @@
             );
         };
 
-        const Dashboard = ({ user, profile, onLogout, showToast }) => {
+        const Dashboard = ({ supabase, user, profile, onLogout, showToast }) => {
             const [activeMenu, setActiveMenu] = useState('overview');
             const [events, setEvents] = useState([]);
             const [competitions, setCompetitions] = useState([]);
@@ -411,7 +412,7 @@
         };
 
         const App = () => {
-            const [sbConfigured, setSbConfigured] = useState(false);
+            const [supabaseClient, setSupabaseClient] = useState(null);
             const [user, setUser] = useState(null);
             const [profile, setProfile] = useState(null);
             const [toast, setToast] = useState(null);
@@ -427,59 +428,58 @@
                     if (!window.supabase) {
                         throw new Error("Library Supabase belum dimuat oleh browser. Silakan muat ulang halaman.");
                     }
-                    supabase = window.supabase.createClient(url, key);
-                    setSbConfigured(true);
-                    checkUser();
+                    const client = window.supabase.createClient(url, key);
+                    setSupabaseClient(client);
+                    checkUser(client);
                 } catch (error) {
                     showToast("Gagal menghubungkan ke database: " + error.message, "error");
                     console.error("Init Supabase Error:", error);
                 }
             };
 
-            const checkUser = async () => {
-                if (!supabase) return;
-                setLoading(true);
-                const { data: { session } } = await supabase.auth.getSession();
+            const checkUser = async (client) => {
+                const sb = client || supabaseClient;
+                if (!sb) return;
                 
-                if (session?.user) {
-                    setUser(session.user);
-                    // Ambil profile role (RLS berlaku)
-                    const { data: prof } = await supabase.from('profiles').select('*').eq('id', session.user.id).single();
-                    setProfile(prof);
-                } else {
-                    setUser(null);
-                    setProfile(null);
+                setLoading(true);
+                try {
+                    const { data: { session }, error: sessionError } = await sb.auth.getSession();
+                    
+                    if (sessionError) throw sessionError;
+
+                    if (session?.user) {
+                        setUser(session.user);
+                        // Ambil profile role (RLS berlaku)
+                        const { data: prof, error: profError } = await sb.from('profiles').select('*').eq('id', session.user.id).single();
+                        if (profError) throw profError;
+                        setProfile(prof);
+                    } else {
+                        setUser(null);
+                        setProfile(null);
+                    }
+                } catch (error) {
+                    console.error("Error checking user:", error);
+                    // Jangan tampilkan toast error jika hanya gagal fetch session awal
+                } finally {
+                    setLoading(false);
                 }
-                setLoading(false);
             };
 
             useEffect(() => {
                 const savedUrl = localStorage.getItem('sb_url');
                 const savedKey = localStorage.getItem('sb_key');
                 
-                // Mekanisme polling untuk memastikan window.supabase sudah siap
-                let attempts = 0;
-                const checkSupabaseLoaded = setInterval(() => {
-                    attempts++;
-                    if (window.supabase) {
-                        clearInterval(checkSupabaseLoaded);
-                        if (savedUrl && savedKey) {
-                            initSupabase(savedUrl, savedKey);
-                        } else {
-                            setLoading(false);
-                        }
-                    } else if (attempts > 50) { // Tunggu maksimal ~5 detik (50 * 100ms)
-                        clearInterval(checkSupabaseLoaded);
-                        setLoading(false);
-                        showToast("Koneksi jaringan lambat atau gagal memuat Supabase. Silakan muat ulang.", "error");
-                    }
-                }, 100);
-
-                return () => clearInterval(checkSupabaseLoaded); // Cleanup
+                if (savedUrl && savedKey) {
+                    initSupabase(savedUrl, savedKey);
+                } else {
+                    setLoading(false);
+                }
             }, []);
 
             const handleLogout = async () => {
-                await supabase.auth.signOut();
+                if (supabaseClient) {
+                    await supabaseClient.auth.signOut();
+                }
                 setUser(null);
                 setProfile(null);
             };
@@ -490,19 +490,42 @@
                 <div>
                     {toast && <Toast message={toast.message} type={toast.type} onClose={() => setToast(null)} />}
                     
-                    {!sbConfigured ? (
+                    {!supabaseClient ? (
                         <SetupSupabase onSetup={initSupabase} />
                     ) : !user ? (
-                        <Auth onLogin={checkUser} showToast={showToast} />
+                        <Auth supabase={supabaseClient} onLogin={() => checkUser(supabaseClient)} showToast={showToast} />
                     ) : (
-                        <Dashboard user={user} profile={profile} onLogout={handleLogout} showToast={showToast} />
+                        <Dashboard supabase={supabaseClient} user={user} profile={profile} onLogout={handleLogout} showToast={showToast} />
                     )}
                 </div>
             );
         };
 
-        const root = ReactDOM.createRoot(document.getElementById('root'));
-        root.render(<App />);
+        const renderApp = () => {
+            const root = ReactDOM.createRoot(document.getElementById('root'));
+            root.render(<App />);
+        };
+
+        // Tunggu hingga object window.supabase tersedia (maksimal 5 detik)
+        let checkAttempts = 0;
+        const checkSupabase = setInterval(() => {
+            if (window.supabase) {
+                clearInterval(checkSupabase);
+                renderApp();
+            } else {
+                checkAttempts++;
+                if (checkAttempts > 50) { // 50 * 100ms = 5 detik
+                    clearInterval(checkSupabase);
+                    document.getElementById('root').innerHTML = `
+                        <div style="padding: 20px; color: red; text-align: center; font-family: sans-serif;">
+                            Gagal memuat library Supabase dari jaringan. <br/>
+                            Pastikan koneksi internet Anda stabil atau matikan AdBlocker, lalu muat ulang halaman.
+                        </div>
+                    `;
+                }
+            }
+        }, 100);
+
     </script>
 </body>
 </html>
