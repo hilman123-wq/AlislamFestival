@@ -423,9 +423,17 @@
             };
 
             const initSupabase = (url, key) => {
-                supabase = window.supabase.createClient(url, key);
-                setSbConfigured(true);
-                checkUser();
+                try {
+                    if (!window.supabase) {
+                        throw new Error("Library Supabase belum dimuat oleh browser. Silakan muat ulang halaman.");
+                    }
+                    supabase = window.supabase.createClient(url, key);
+                    setSbConfigured(true);
+                    checkUser();
+                } catch (error) {
+                    showToast("Gagal menghubungkan ke database: " + error.message, "error");
+                    console.error("Init Supabase Error:", error);
+                }
             };
 
             const checkUser = async () => {
@@ -448,11 +456,26 @@
             useEffect(() => {
                 const savedUrl = localStorage.getItem('sb_url');
                 const savedKey = localStorage.getItem('sb_key');
-                if (savedUrl && savedKey) {
-                    initSupabase(savedUrl, savedKey);
-                } else {
-                    setLoading(false);
-                }
+                
+                // Mekanisme polling untuk memastikan window.supabase sudah siap
+                let attempts = 0;
+                const checkSupabaseLoaded = setInterval(() => {
+                    attempts++;
+                    if (window.supabase) {
+                        clearInterval(checkSupabaseLoaded);
+                        if (savedUrl && savedKey) {
+                            initSupabase(savedUrl, savedKey);
+                        } else {
+                            setLoading(false);
+                        }
+                    } else if (attempts > 50) { // Tunggu maksimal ~5 detik (50 * 100ms)
+                        clearInterval(checkSupabaseLoaded);
+                        setLoading(false);
+                        showToast("Koneksi jaringan lambat atau gagal memuat Supabase. Silakan muat ulang.", "error");
+                    }
+                }, 100);
+
+                return () => clearInterval(checkSupabaseLoaded); // Cleanup
             }, []);
 
             const handleLogout = async () => {
