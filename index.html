@@ -20,6 +20,8 @@
         .fade-in { animation: fadeIn 0.3s ease-in-out; }
         @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
     </style>
+    <!-- Tambahkan ini di bagian <head> atau sebelum tag <script type="text/babel"> -->
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 </head>
 <body>
     <div id="root"></div>
@@ -422,10 +424,20 @@
                 setTimeout(() => setToast(null), 4000);
             };
 
+            // Di dalam komponen App atau blok fungsi inisialisasi Anda
             const initSupabase = (url, key) => {
-                supabase = window.supabase.createClient(url, key);
-                setSbConfigured(true);
-                checkUser();
+            try {
+                // Pastikan memanggil dari 'window.supabase'
+                if (!window.supabase) {
+                throw new Error("Library Supabase belum dimuat oleh browser.");
+                }
+                
+                const client = window.supabase.createClient(url, key);
+                setSupabase(client);
+                
+            } catch (error) {
+                console.error("Gagal menginisialisasi Supabase:", error.message);
+            }
             };
 
             const checkUser = async () => {
