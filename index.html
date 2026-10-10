@@ -1,0 +1,485 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Al Islam Festival Platform 2027</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- React & ReactDOM -->
+    <script crossorigin src="https://unpkg.com/react@18/umd/react.development.js"></script>
+    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+    <!-- Babel for JSX -->
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <!-- Supabase JS -->
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <!-- Phosphor Icons -->
+    <script src="https://unpkg.com/@phosphor-icons/web"></script>
+    <style>
+        body { font-family: 'Inter', sans-serif; background-color: #f3f4f6; }
+        .fade-in { animation: fadeIn 0.3s ease-in-out; }
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+    </style>
+</head>
+<body>
+    <div id="root"></div>
+
+    <script type="text/babel">
+        const { useState, useEffect, useCallback } = React;
+        
+        let supabase = null;
+
+        // Custom UI Components untuk menghindari alert()
+        const Toast = ({ message, type, onClose }) => (
+            <div className={`fixed top-5 right-5 p-4 rounded-lg shadow-lg text-white font-medium z-50 fade-in ${type === 'error' ? 'bg-red-500' : 'bg-green-500'}`}>
+                <div className="flex justify-between items-center gap-4">
+                    <span>{message}</span>
+                    <button onClick={onClose} className="text-white hover:text-gray-200"><i className="ph ph-x"></i></button>
+                </div>
+            </div>
+        );
+
+        const SetupSupabase = ({ onSetup }) => {
+            const [url, setUrl] = useState(localStorage.getItem('sb_url') || '');
+            const [key, setKey] = useState(localStorage.getItem('sb_key') || '');
+
+            const handleConnect = (e) => {
+                e.preventDefault();
+                if(url && key) {
+                    localStorage.setItem('sb_url', url);
+                    localStorage.setItem('sb_key', key);
+                    onSetup(url, key);
+                }
+            };
+
+            return (
+                <div className="min-h-screen flex items-center justify-center bg-gray-50 py-12 px-4 sm:px-6 lg:px-8">
+                    <div className="max-w-md w-full space-y-8 bg-white p-8 rounded-xl shadow-xl">
+                        <div>
+                            <h2 className="mt-6 text-center text-3xl font-extrabold text-gray-900">
+                                Setup Koneksi Database
+                            </h2>
+                            <p className="mt-2 text-center text-sm text-gray-600">
+                                Sesuai PRD, aplikasi harus berfungsi nyata. Masukkan URL dan Anon Key Supabase Anda.
+                            </p>
+                        </div>
+                        <form className="mt-8 space-y-6" onSubmit={handleConnect}>
+                            <div className="rounded-md shadow-sm -space-y-px flex flex-col gap-4">
+                                <div>
+                                    <label className="text-sm font-medium text-gray-700">Supabase Project URL</label>
+                                    <input type="url" required value={url} onChange={e => setUrl(e.target.value)}
+                                        className="appearance-none rounded relative block w-full px-3 py-2 border border-gray-300 placeholder-gray-500 text-gray-900 focus:outline-none focus:ring-green-500 focus:border-green-500 sm:text-sm"
+                                        placeholder="https://xxxx.supabase.co" />
+                                </div>
+                                <div>
+                                    <label className="text-sm font-medium text-gray-700">Supabase Anon Key</label>
+                                    <input type="text" required value={key} onChange={e => setKey(e.target.value)}
+                                        className="appearance-none rounded relative block w-full px-3 py-2 border border-gray-300 placeholder-gray-500 text-gray-900 focus:outline-none focus:ring-green-500 focus:border-green-500 sm:text-sm"
+                                        placeholder="eyJh..." />
+                                </div>
+                            </div>
+                            <div>
+                                <button type="submit" className="group relative w-full flex justify-center py-2 px-4 border border-transparent text-sm font-medium rounded-md text-white bg-green-600 hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500">
+                                    Hubungkan
+                                </button>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+            );
+        };
+
+        const Auth = ({ onLogin, showToast }) => {
+            const [isLogin, setIsLogin] = useState(true);
+            const [email, setEmail] = useState('');
+            const [password, setPassword] = useState('');
+            const [fullName, setFullName] = useState('');
+            const [loading, setLoading] = useState(false);
+
+            const handleSubmit = async (e) => {
+                e.preventDefault();
+                setLoading(true);
+                try {
+                    let result;
+                    if (isLogin) {
+                        result = await supabase.auth.signInWithPassword({ email, password });
+                    } else {
+                        // PRD: Daftar otomatis menjadi role PESERTA via Trigger SQL
+                        result = await supabase.auth.signUp({ 
+                            email, 
+                            password,
+                            options: { data: { full_name: fullName } }
+                        });
+                        if (result.data?.user && !result.error) {
+                             showToast("Pendaftaran berhasil. Silakan cek email/langsung login.", "success");
+                        }
+                    }
+                    
+                    if (result.error) throw result.error;
+                    if (result.data?.session) onLogin(result.data.session.user);
+                    
+                } catch (error) {
+                    showToast(error.message, "error");
+                } finally {
+                    setLoading(false);
+                }
+            };
+
+            return (
+                <div className="min-h-screen flex items-center justify-center bg-gray-100 py-12 px-4 sm:px-6 lg:px-8">
+                    <div className="max-w-md w-full bg-white p-8 rounded-2xl shadow-lg border border-gray-100 fade-in">
+                        <div className="text-center mb-8">
+                            <h1 className="text-3xl font-bold text-green-700">AL ISLAM FESTIVAL</h1>
+                            <p className="text-gray-500 mt-2">{isLogin ? 'Masuk ke akun Anda' : 'Daftar sebagai peserta baru'}</p>
+                        </div>
+                        <form onSubmit={handleSubmit} className="space-y-5">
+                            {!isLogin && (
+                                <div>
+                                    <label className="block text-sm font-medium text-gray-700">Nama Lengkap</label>
+                                    <input type="text" required value={fullName} onChange={e => setFullName(e.target.value)}
+                                        className="mt-1 block w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-green-500 focus:border-green-500" />
+                                </div>
+                            )}
+                            <div>
+                                <label className="block text-sm font-medium text-gray-700">Email</label>
+                                <input type="email" required value={email} onChange={e => setEmail(e.target.value)}
+                                    className="mt-1 block w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-green-500 focus:border-green-500" />
+                            </div>
+                            <div>
+                                <label className="block text-sm font-medium text-gray-700">Password</label>
+                                <input type="password" required value={password} onChange={e => setPassword(e.target.value)}
+                                    className="mt-1 block w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-green-500 focus:border-green-500" />
+                            </div>
+                            <button type="submit" disabled={loading}
+                                className="w-full flex justify-center py-3 px-4 border border-transparent rounded-lg shadow-sm text-sm font-bold text-white bg-green-600 hover:bg-green-700 focus:outline-none disabled:opacity-50">
+                                {loading ? 'Memproses...' : (isLogin ? 'Masuk' : 'Daftar')}
+                            </button>
+                        </form>
+                        <div className="mt-6 text-center">
+                            <button onClick={() => setIsLogin(!isLogin)} className="text-sm text-green-600 hover:text-green-500 font-medium">
+                                {isLogin ? 'Belum punya akun? Daftar di sini' : 'Sudah punya akun? Masuk'}
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            );
+        };
+
+        const Dashboard = ({ user, profile, onLogout, showToast }) => {
+            const [activeMenu, setActiveMenu] = useState('overview');
+            const [events, setEvents] = useState([]);
+            const [competitions, setCompetitions] = useState([]);
+            const [registrations, setRegistrations] = useState([]);
+            const [loading, setLoading] = useState(true);
+            const [activeEvent, setActiveEvent] = useState(null);
+
+            const isAdmin = profile?.role === 'SUPER_ADMIN' || profile?.role === 'ADMIN_FESTIVAL';
+
+            const fetchData = useCallback(async () => {
+                setLoading(true);
+                try {
+                    // Fetch Active Events
+                    const { data: evts, error: errEvt } = await supabase.from('events').select('*').neq('status', 'DRAFT');
+                    if (errEvt) throw errEvt;
+                    setEvents(evts);
+                    
+                    if (evts.length > 0) {
+                        const currentEvt = evts[0]; // Ambil event pertama untuk MVP
+                        setActiveEvent(currentEvt);
+
+                        // Fetch Competitions
+                        const { data: comps, error: errComp } = await supabase.from('competitions').select('*').eq('event_id', currentEvt.id);
+                        if (errComp) throw errComp;
+                        setCompetitions(comps);
+
+                        // Fetch Registrations (RLS will handle row filtering)
+                        const { data: regs, error: errReg } = await supabase.from('registrations').select(`
+                            *,
+                            competitions (name, category, format)
+                        `).eq('event_id', currentEvt.id);
+                        if (errReg) throw errReg;
+                        setRegistrations(regs);
+                    }
+                } catch (error) {
+                    showToast("Gagal memuat data: " + error.message, "error");
+                } finally {
+                    setLoading(false);
+                }
+            }, [showToast]);
+
+            useEffect(() => {
+                fetchData();
+            }, [fetchData]);
+
+            const handleRegisterLomba = async (compId) => {
+                const schoolName = prompt("Masukkan nama sekolah Anda:"); // Menggunakan custom UI form di produksi sesungguhnya, prompt untuk simplifikasi MVP
+                if (!schoolName) return;
+
+                try {
+                    const { error } = await supabase.from('registrations').insert([
+                        {
+                            event_id: activeEvent.id,
+                            competition_id: compId,
+                            user_id: user.id,
+                            participant_name: profile.full_name || user.email,
+                            school_name: schoolName,
+                            status: 'MENUNGGU_VERIFIKASI'
+                        }
+                    ]);
+                    if (error) throw error;
+                    showToast("Berhasil mendaftar lomba!", "success");
+                    fetchData(); // Refresh data
+                } catch (error) {
+                    showToast("Gagal mendaftar: " + error.message, "error");
+                }
+            };
+
+            // Render Sidebar
+            const Sidebar = () => (
+                <div className="w-64 bg-green-800 text-white min-h-screen p-4 flex flex-col hidden md:flex">
+                    <div className="text-2xl font-bold mb-8 text-center pb-4 border-b border-green-700">
+                        AIF 2027
+                    </div>
+                    <nav className="flex-1 space-y-2">
+                        <button onClick={() => setActiveMenu('overview')} className={`w-full text-left px-4 py-3 rounded-lg flex items-center gap-3 transition-colors ${activeMenu === 'overview' ? 'bg-green-700' : 'hover:bg-green-700'}`}>
+                            <i className="ph ph-squares-four text-xl"></i> Dashboard
+                        </button>
+                        {isAdmin && (
+                            <button onClick={() => setActiveMenu('admin_lomba')} className={`w-full text-left px-4 py-3 rounded-lg flex items-center gap-3 transition-colors ${activeMenu === 'admin_lomba' ? 'bg-green-700' : 'hover:bg-green-700'}`}>
+                                <i className="ph ph-gear text-xl"></i> Master Lomba
+                            </button>
+                        )}
+                        <button onClick={() => setActiveMenu('registrasi')} className={`w-full text-left px-4 py-3 rounded-lg flex items-center gap-3 transition-colors ${activeMenu === 'registrasi' ? 'bg-green-700' : 'hover:bg-green-700'}`}>
+                            <i className="ph ph-clipboard-text text-xl"></i> Lomba Saya
+                        </button>
+                    </nav>
+                    <div className="pt-4 border-t border-green-700 mt-auto">
+                        <div className="text-sm px-4 mb-4 truncate text-green-200">
+                            <i className="ph ph-user"></i> {profile?.full_name || user.email}
+                            <br/><span className="text-xs bg-green-600 px-2 py-1 rounded mt-1 inline-block">{profile?.role}</span>
+                        </div>
+                        <button onClick={onLogout} className="w-full text-left px-4 py-2 hover:bg-red-600 rounded-lg text-red-200 hover:text-white transition-colors flex items-center gap-2">
+                            <i className="ph ph-sign-out"></i> Keluar
+                        </button>
+                    </div>
+                </div>
+            );
+
+            const renderContent = () => {
+                if (loading) return <div className="p-8 text-center text-gray-500">Memuat data...</div>;
+                if (!activeEvent) return <div className="p-8 text-center text-gray-500">Belum ada event aktif. Hubungi Super Admin.</div>;
+
+                if (activeMenu === 'overview') {
+                    return (
+                        <div className="fade-in space-y-6">
+                            <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100 flex justify-between items-center bg-gradient-to-r from-green-50 to-white">
+                                <div>
+                                    <h2 className="text-2xl font-bold text-gray-800">{activeEvent.name}</h2>
+                                    <p className="text-gray-600 mt-1">{activeEvent.settings?.slogan || 'Selamat datang di dashboard platform'}</p>
+                                </div>
+                                <span className="px-4 py-2 bg-green-100 text-green-800 font-semibold rounded-full text-sm">
+                                    {activeEvent.status.replace('_', ' ')}
+                                </span>
+                            </div>
+
+                            <h3 className="text-lg font-bold text-gray-800 mt-8 mb-4">Daftar Cabang Lomba Tersedia</h3>
+                            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                                {competitions.map(comp => {
+                                    const isRegistered = registrations.some(r => r.competition_id === comp.id);
+                                    return (
+                                        <div key={comp.id} className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100 hover:shadow-md transition-shadow">
+                                            <div className="flex justify-between items-start mb-4">
+                                                <h4 className="font-bold text-lg text-gray-800">{comp.name}</h4>
+                                                <span className={`text-xs px-2 py-1 rounded font-medium ${comp.format === 'ONLINE' ? 'bg-blue-100 text-blue-700' : 'bg-orange-100 text-orange-700'}`}>
+                                                    {comp.format}
+                                                </span>
+                                            </div>
+                                            <p className="text-sm text-gray-500 mb-6">Kategori: {comp.category}</p>
+                                            
+                                            {isRegistered ? (
+                                                <button disabled className="w-full py-2 bg-gray-100 text-gray-500 rounded-lg text-sm font-medium flex items-center justify-center gap-2">
+                                                    <i className="ph ph-check-circle"></i> Sudah Mendaftar
+                                                </button>
+                                            ) : (
+                                                <button onClick={() => handleRegisterLomba(comp.id)} className="w-full py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg text-sm font-medium transition-colors">
+                                                    Daftar Sekarang
+                                                </button>
+                                            )}
+                                        </div>
+                                    )
+                                })}
+                            </div>
+                        </div>
+                    );
+                }
+
+                if (activeMenu === 'registrasi') {
+                    return (
+                        <div className="fade-in">
+                            <h2 className="text-2xl font-bold text-gray-800 mb-6">{isAdmin ? 'Semua Registrasi (Admin)' : 'Riwayat Pendaftaran Saya'}</h2>
+                            <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
+                                <table className="w-full text-left border-collapse">
+                                    <thead>
+                                        <tr className="bg-gray-50 text-gray-600 text-sm border-b">
+                                            <th className="p-4 font-semibold">Nama Peserta/Tim</th>
+                                            <th className="p-4 font-semibold">Sekolah</th>
+                                            <th className="p-4 font-semibold">Cabang Lomba</th>
+                                            <th className="p-4 font-semibold">Status</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody className="text-sm text-gray-700">
+                                        {registrations.length === 0 ? (
+                                            <tr><td colSpan="4" className="p-6 text-center text-gray-500">Belum ada data pendaftaran.</td></tr>
+                                        ) : (
+                                            registrations.map(reg => (
+                                                <tr key={reg.id} className="border-b hover:bg-gray-50">
+                                                    <td className="p-4 font-medium text-gray-900">{reg.participant_name}</td>
+                                                    <td className="p-4">{reg.school_name}</td>
+                                                    <td className="p-4">
+                                                        {reg.competitions?.name}
+                                                        <div className="text-xs text-gray-500 mt-1">{reg.competitions?.category}</div>
+                                                    </td>
+                                                    <td className="p-4">
+                                                        <span className={`px-3 py-1 rounded-full text-xs font-semibold
+                                                            ${reg.status === 'TERVERIFIKASI' ? 'bg-green-100 text-green-800' : 
+                                                              reg.status === 'DITOLAK' ? 'bg-red-100 text-red-800' : 
+                                                              'bg-yellow-100 text-yellow-800'}`}>
+                                                            {reg.status.replace('_', ' ')}
+                                                        </span>
+                                                    </td>
+                                                </tr>
+                                            ))
+                                        )}
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    );
+                }
+                
+                if (activeMenu === 'admin_lomba' && isAdmin) {
+                    return (
+                        <div className="fade-in">
+                             <h2 className="text-2xl font-bold text-gray-800 mb-2">Master Data Cabang Lomba</h2>
+                             <p className="text-gray-500 mb-6">Konfigurasi lomba (PRD: Aturan lomba tidak boleh di-hardcode).</p>
+                             
+                             <div className="grid gap-4">
+                                {competitions.map(comp => (
+                                    <div key={comp.id} className="bg-white p-5 border border-gray-200 rounded-xl flex justify-between items-center">
+                                        <div>
+                                            <h4 className="font-bold text-lg text-gray-800">{comp.name}</h4>
+                                            <div className="flex gap-3 text-sm text-gray-500 mt-2">
+                                                <span><i className="ph ph-users"></i> {comp.category}</span>
+                                                <span><i className="ph ph-laptop"></i> {comp.format}</span>
+                                                <span className={comp.is_active ? 'text-green-600' : 'text-red-600'}>
+                                                    {comp.is_active ? 'Aktif' : 'Non-aktif'}
+                                                </span>
+                                            </div>
+                                        </div>
+                                        <div>
+                                            <button className="px-4 py-2 border border-gray-300 text-gray-700 rounded-lg text-sm hover:bg-gray-50 transition-colors">
+                                                Edit Konfigurasi
+                                            </button>
+                                        </div>
+                                    </div>
+                                ))}
+                             </div>
+                        </div>
+                    )
+                }
+
+                return null;
+            };
+
+            return (
+                <div className="flex bg-gray-50 min-h-screen">
+                    <Sidebar />
+                    <div className="flex-1 flex flex-col h-screen overflow-hidden">
+                        {/* Mobile Header */}
+                        <header className="md:hidden bg-green-800 text-white p-4 flex justify-between items-center shadow-md">
+                            <div className="font-bold text-lg">AIF 2027</div>
+                            <button onClick={onLogout} className="text-sm bg-green-700 px-3 py-1 rounded">Keluar</button>
+                        </header>
+                        
+                        {/* Main Content Area */}
+                        <main className="flex-1 p-6 md:p-10 overflow-y-auto">
+                            {renderContent()}
+                        </main>
+                    </div>
+                </div>
+            );
+        };
+
+        const App = () => {
+            const [sbConfigured, setSbConfigured] = useState(false);
+            const [user, setUser] = useState(null);
+            const [profile, setProfile] = useState(null);
+            const [toast, setToast] = useState(null);
+            const [loading, setLoading] = useState(true);
+
+            const showToast = (message, type = 'success') => {
+                setToast({ message, type });
+                setTimeout(() => setToast(null), 4000);
+            };
+
+            const initSupabase = (url, key) => {
+                supabase = window.supabase.createClient(url, key);
+                setSbConfigured(true);
+                checkUser();
+            };
+
+            const checkUser = async () => {
+                if (!supabase) return;
+                setLoading(true);
+                const { data: { session } } = await supabase.auth.getSession();
+                
+                if (session?.user) {
+                    setUser(session.user);
+                    // Ambil profile role (RLS berlaku)
+                    const { data: prof } = await supabase.from('profiles').select('*').eq('id', session.user.id).single();
+                    setProfile(prof);
+                } else {
+                    setUser(null);
+                    setProfile(null);
+                }
+                setLoading(false);
+            };
+
+            useEffect(() => {
+                const savedUrl = localStorage.getItem('sb_url');
+                const savedKey = localStorage.getItem('sb_key');
+                if (savedUrl && savedKey) {
+                    initSupabase(savedUrl, savedKey);
+                } else {
+                    setLoading(false);
+                }
+            }, []);
+
+            const handleLogout = async () => {
+                await supabase.auth.signOut();
+                setUser(null);
+                setProfile(null);
+            };
+
+            if (loading) return <div className="h-screen w-full flex items-center justify-center bg-gray-50"><div className="text-green-600 font-bold text-xl">Memuat Al Islam Festival...</div></div>;
+
+            return (
+                <div>
+                    {toast && <Toast message={toast.message} type={toast.type} onClose={() => setToast(null)} />}
+                    
+                    {!sbConfigured ? (
+                        <SetupSupabase onSetup={initSupabase} />
+                    ) : !user ? (
+                        <Auth onLogin={checkUser} showToast={showToast} />
+                    ) : (
+                        <Dashboard user={user} profile={profile} onLogout={handleLogout} showToast={showToast} />
+                    )}
+                </div>
+            );
+        };
+
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<App />);
+    </script>
+</body>
+</html>
